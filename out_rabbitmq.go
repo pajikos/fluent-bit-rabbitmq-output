@@ -20,12 +20,13 @@ var (
 	removeRkValuesFromRecord bool
 	addTagToRecord           bool
 	addTimestampToRecord     bool
+	contentEncoding          string
 )
 
 //export FLBPluginRegister
 func FLBPluginRegister(def unsafe.Pointer) int {
 	// Gets called only once when the plugin.so is loaded
-	return output.FLBPluginRegister(def, "rabbitmq", "Stdout GO!")
+	return output.FLBPluginRegister(def, "rabbitmq", "RabbitMQ output plugin")
 }
 
 //export FLBPluginInit
@@ -37,6 +38,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	port := output.FLBPluginConfigKey(plugin, "RabbitPort")
 	user := output.FLBPluginConfigKey(plugin, "RabbitUser")
 	password := output.FLBPluginConfigKey(plugin, "RabbitPassword")
+	vhost := output.FLBPluginConfigKey(plugin, "RabbitVHost")
 	exchangeName = output.FLBPluginConfigKey(plugin, "ExchangeName")
 	exchangeType := output.FLBPluginConfigKey(plugin, "ExchangeType")
 	routingKey = output.FLBPluginConfigKey(plugin, "RoutingKey")
@@ -44,6 +46,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	removeRkValuesFromRecordStr := output.FLBPluginConfigKey(plugin, "RemoveRkValuesFromRecord")
 	addTagToRecordStr := output.FLBPluginConfigKey(plugin, "AddTagToRecord")
 	addTimestampToRecordStr := output.FLBPluginConfigKey(plugin, "AddTimestampToRecord")
+	contentEncoding = output.FLBPluginConfigKey(plugin, "ContentEncoding")
 
 	if len(routingKeyDelimiter) < 1 {
 		routingKeyDelimiter = "."
@@ -74,7 +77,11 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		return output.FLB_ERROR
 	}
 
-	connection, err = amqp.Dial("amqp://" + user + ":" + password + "@" + host + ":" + port + "/")
+	if len(contentEncoding) < 1 {
+		contentEncoding = ""
+	}
+
+	connection, err = amqp.Dial("amqp://" + user + ":" + password + "@" + host + ":" + port + "/" + vhost)
 	if err != nil {
 		logError("Failed to establish a connection to RabbitMQ: ", err)
 		return output.FLB_ERROR
@@ -152,8 +159,9 @@ func FLBPluginFlushCtx(ctx, data unsafe.Pointer, length C.int, tag *C.char) int 
 			false,        // mandatory
 			false,        // immediate
 			amqp.Publishing{
-				ContentType: "application/json",
-				Body:        jsonString,
+				ContentType:     "application/json",
+				ContentEncoding: contentEncoding,
+				Body:            jsonString,
 			})
 		if err != nil {
 			logError("Couldn't publish record: ", err)
@@ -164,6 +172,12 @@ func FLBPluginFlushCtx(ctx, data unsafe.Pointer, length C.int, tag *C.char) int 
 
 //export FLBPluginExit
 func FLBPluginExit() int {
+	if channel != nil {
+		channel.Close()
+	}
+	if connection != nil {
+		connection.Close()
+	}
 	return output.FLB_OK
 }
 

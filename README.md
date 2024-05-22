@@ -20,11 +20,13 @@ build
 | RabbitPort                   | The port under which the Rabbit-MQ is reachable                                                 | ""            |
 | RabbitUser                   | The user of the Rabbit-MQ host                                                                  | ""            |
 | RabbitPassword               | The username of the user which connects to the Rabbit-MQ server                                 | ""            |
+| RabbitVHost                  | The  virtual host of the Rabbit-MQ server                                                       | ""            |
 | ExchangeName                 | The exchange to which fluent-bit send its logs                                                  | ""            |
 | ExchangeType                 | The exchange-type                                                                               | ""            |
 | RoutingKey                   | The routing-key pattern                                                                         | ""            |
 | RoutingKeyDelimiter          | The Delemiter which seperates the routing-key parts                                             |  "."          |
 | RemoveRkValuesFromRecord     | If enabled fluentd deletes the values of the record,  which have been stored in the routing-key | ""            |
+| ContentEncoding              | Sets the Content Encoding if needed                                                             | ""            |
 
 ### Routing-Key pattern
 
