@@ -1,30 +1,31 @@
-stages:
-  - build
+stages:  
+  - build  
   - upload
 
-variables:
-  GO_VERSION: "1.20.14"
+variables:  
+  GO_VERSION: "1.20.14"  
   PACKAGE_REGISTRY_PROJECT_ID: $CI_PROJECT_ID
 
-before_script:
-  - apt-get update && apt-get install -y make
-  - export VERSION=$(cat version.txt)
-  - export TIMESTAMP=$(date +%Y%m%d%H%M%S%3N)
-  - export SHORT_HASH=$(git rev-parse --short HEAD)
-  - export PACKAGE_VERSION="${VERSION}-${TIMESTAMP}-${SHORT_HASH}"
-  - export PACKAGE_REGISTRY_URL="$CI_API_V4_URL/projects/$PACKAGE_REGISTRY_PROJECT_ID/packages/generic/fluentbit-rabbitmq-plugin/$PACKAGE_VERSION"
-
-build:
-  stage: build
-  image: golang:${GO_VERSION}-bullseye
-  script:
-    - go mod download
-    - make all
-  artifacts:
-    paths:
+build:  
+  stage: build  
+  image: golang:${GO_VERSION}-bullseye  
+  script:  
+    - apt-get update && apt-get install -y make
+    - go mod download  
+    - make all  
+  artifacts:  
+    paths:  
       - out_rabbitmq.so
 
-upload:
-  stage: upload
-  script:
+upload:  
+  stage: upload  
+  image: ubuntu:latest
+  before_script:  
+    - apt-get update && apt-get install -y curl git
+    - export VERSION=$(cat version.txt)  
+    - export TIMESTAMP=$(date +%Y%m%d%H%M%S%3N)  
+    - export SHORT_HASH=$(git rev-parse --short HEAD)  
+    - export PACKAGE_VERSION="${VERSION}-${TIMESTAMP}-${SHORT_HASH}"  
+    - export PACKAGE_REGISTRY_URL="$CI_API_V4_URL/projects/$PACKAGE_REGISTRY_PROJECT_ID/packages/generic/fluentbit-rabbitmq-plugin/$PACKAGE_VERSION"
+  script:  
     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file out_rabbitmq.so "$PACKAGE_REGISTRY_URL/out_rabbitmq.so"'
