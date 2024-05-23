@@ -34,4 +34,4 @@ build:
 upload:
   stage: upload
   script:
-    - curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file /go/src/out_rabbitmq.so "$PACKAGE_REGISTRY_URL/out_rabbitmq.so"
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file /go/src/out_rabbitmq.so "$PACKAGE_REGISTRY_URL/out_rabbitmq.so"'
