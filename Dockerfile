@@ -13,7 +13,7 @@ WORKDIR /go/src
 
 RUN make
 
-FROM fluent/fluent-bit:3.0.3
+FROM fluent/fluent-bit:3.0.4
 
 LABEL maintainer="Björn Franke"
 
