@@ -16,6 +16,7 @@ build:
   artifacts:  
     paths:  
       - out_rabbitmq.so
+    expire_in: 1 week
 
 upload:  
   stage: upload  
@@ -27,5 +28,24 @@ upload:
     - export SHORT_HASH=$(git rev-parse --short HEAD)  
     - export PACKAGE_VERSION="${VERSION}-${TIMESTAMP}-${SHORT_HASH}"  
     - export PACKAGE_REGISTRY_URL="$CI_API_V4_URL/projects/$PACKAGE_REGISTRY_PROJECT_ID/packages/generic/fluentbit-rabbitmq-plugin/$PACKAGE_VERSION"
+    - echo -e "VERSION:${VERSION}\nTIMESTAMP:${TIMESTAMP}\nSHORT_HASH:${SHORT_HASH}\nPACKAGE_VERSION:${PACKAGE_VERSION}\nPACKAGE_REGISTRY_URL:${PACKAGE_REGISTRY_URL}"
   script:  
     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file out_rabbitmq.so "$PACKAGE_REGISTRY_URL/out_rabbitmq.so"'
+  # only:
+  #   - pbk-master
+
+# download:
+#   image: ubuntu:latest
+#   stage: download
+#   before_script:  
+#     - apt-get update && apt-get install -y curl
+#   script:
+#     - echo "Reading RabbitMQ plugin version..."
+#     - export PLUGIN_VERSION="0.1.0-20240524115724108-1376943"
+#     - echo "Plugin version is ${PLUGIN_VERSION}"
+#     - echo "Downloading out_rabbitmq.so from GitLab artifact repository $CI_API_V4_URL/projects/1451/packages/generic/fluentbit-rabbitmq-plugin/${PLUGIN_VERSION}"
+#     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --output out_rabbitmq.so "$CI_API_V4_URL/projects/1451/packages/generic/fluentbit-rabbitmq-plugin/${PLUGIN_VERSION}/out_rabbitmq.so"'
+#     - ls -l out_rabbitmq.so
+#   artifacts:
+#     paths:
+#       - out_rabbitmq.so
