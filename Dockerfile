@@ -1,25 +1,33 @@
 FROM golang:1.20.14-bullseye as building-stage
 
-RUN go install github.com/fluent/fluent-bit-go/output@latest; exit 0 && \ 
-    go install github.com/rabbitmq/amqp091-go@latest; exit 0
-    
-
-COPY ./*.go /go/src/
-COPY ./go.mod /go/src/
-COPY ./go.sum /go/src/
-COPY ./Makefile /go/src
-
+# Set the working directory
 WORKDIR /go/src
 
+# Copy go.mod and go.sum files first to leverage Docker cache
+COPY ./go.mod ./go.sum ./
+
+# Download dependencies based on go.mod and go.sum
+RUN go mod download
+
+# Copy the rest of the source code
+COPY ./*.go ./
+COPY ./Makefile ./
+
+# Build the project using the Makefile
 RUN make
 
-FROM fluent/fluent-bit:3.0.3
+FROM fluent/fluent-bit:3.0.4
 
 LABEL maintainer="Björn Franke"
 
-COPY --from=building-stage /go/src/out_rabbitmq.so  /fluent-bit/bin/
+# Copy the built plugin from the building stage
+COPY --from=building-stage /go/src/out_rabbitmq.so /fluent-bit/bin/
+
+# Copy the Fluent Bit configuration file
 COPY ./conf/fluent-bit-docker.conf /fluent-bit/etc
 
+# Expose the necessary port
 EXPOSE 2020
 
-CMD ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit-docker.conf","-e","/fluent-bit/bin/out_rabbitmq.so"]
+# Set the command to run Fluent Bit with the specified configuration
+CMD ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/fluent-bit-docker.conf", "-e", "/fluent-bit/bin/out_rabbitmq.so"]

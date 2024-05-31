@@ -1,16 +1,51 @@
-build_image:
-    image: docker:stable
-    stage: build
-    services:
-    - docker:dind
-    variables:
-      UPSTREAM_IMAGE: $CI_REGISTRY/fluent-bit-rabbitmq-output/$CI_PROJECT_NAME
-      DOCKER_HOST: tcp://docker:2375/
-    before_script:
-    - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
-    script:
-    - docker pull $UPSTREAM_IMAGE:latest || true
-    - docker build --cache-from $UPSTREAM_IMAGE:latest --tag $CI_REGISTRY_IMAGE:$CI_BUILD_REF --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME --tag $CI_REGISTRY_IMAGE:latest .
-    - docker push $CI_REGISTRY_IMAGE:$CI_BUILD_REF
-    - if [ "${CI_COMMIT_REF_NAME}" != "master" ]; then docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME; fi;
-    - if [ "${CI_COMMIT_REF_NAME}" == "master" ]; then docker push $CI_REGISTRY_IMAGE:latest; fi;
+stages:  
+  - build  
+  - upload
+
+variables:  
+  GO_VERSION: "1.20.14"  
+  PACKAGE_REGISTRY_PROJECT_ID: $CI_PROJECT_ID
+
+build:  
+  stage: build  
+  image: golang:${GO_VERSION}-bullseye  
+  script:  
+    - apt-get update && apt-get install -y make
+    - go mod download  
+    - make all  
+  artifacts:  
+    paths:  
+      - out_rabbitmq.so
+    expire_in: 1 week
+
+upload:  
+  stage: upload  
+  image: ubuntu:latest
+  before_script:  
+    - apt-get update && apt-get install -y curl git
+    - export VERSION=$(cat version.txt)  
+    - export TIMESTAMP=$(date +%Y%m%d%H%M%S%3N)  
+    - export SHORT_HASH=$(git rev-parse --short HEAD)  
+    - export PACKAGE_VERSION="${VERSION}-${TIMESTAMP}-${SHORT_HASH}"  
+    - export PACKAGE_REGISTRY_URL="$CI_API_V4_URL/projects/$PACKAGE_REGISTRY_PROJECT_ID/packages/generic/fluentbit-rabbitmq-plugin/$PACKAGE_VERSION"
+    - echo -e "VERSION:${VERSION}\nTIMESTAMP:${TIMESTAMP}\nSHORT_HASH:${SHORT_HASH}\nPACKAGE_VERSION:${PACKAGE_VERSION}\nPACKAGE_REGISTRY_URL:${PACKAGE_REGISTRY_URL}"
+  script:  
+    - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file out_rabbitmq.so "$PACKAGE_REGISTRY_URL/out_rabbitmq.so"'
+  # only:
+  #   - pbk-master
+
+# download:
+#   image: ubuntu:latest
+#   stage: download
+#   before_script:  
+#     - apt-get update && apt-get install -y curl
+#   script:
+#     - echo "Reading RabbitMQ plugin version..."
+#     - export PLUGIN_VERSION="0.1.0-20240524115724108-1376943"
+#     - echo "Plugin version is ${PLUGIN_VERSION}"
+#     - echo "Downloading out_rabbitmq.so from GitLab artifact repository $CI_API_V4_URL/projects/1451/packages/generic/fluentbit-rabbitmq-plugin/${PLUGIN_VERSION}"
+#     - 'curl --header "JOB-TOKEN: $CI_JOB_TOKEN" --output out_rabbitmq.so "$CI_API_V4_URL/projects/1451/packages/generic/fluentbit-rabbitmq-plugin/${PLUGIN_VERSION}/out_rabbitmq.so"'
+#     - ls -l out_rabbitmq.so
+#   artifacts:
+#     paths:
+#       - out_rabbitmq.so
