@@ -2,10 +2,15 @@ package main
 
 import (
 	"C"
+	"crypto/tls"
 	"encoding/json"
 	"log"
 	"strconv"
 	"unsafe"
+
+	"crypto/x509"
+	"fmt"
+	"os"
 
 	"github.com/fluent/fluent-bit-go/output"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -48,6 +53,12 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	addTimestampToRecordStr := output.FLBPluginConfigKey(plugin, "AddTimestampToRecord")
 	contentEncoding = output.FLBPluginConfigKey(plugin, "ContentEncoding")
 
+	tlsCertFile := output.FLBPluginConfigKey(plugin, "TLSCertFile")
+	tlsKeyFile := output.FLBPluginConfigKey(plugin, "TLSKeyFile")
+	tlsCACertFile := output.FLBPluginConfigKey(plugin, "TLSCACertFile")
+	tlsInsecureSkipVerifyStr := output.FLBPluginConfigKey(plugin, "TLSInsecureSkipVerify")
+	tlsEnabledStr := output.FLBPluginConfigKey(plugin, "TLSEnabled")
+
 	if len(routingKeyDelimiter) < 1 {
 		routingKeyDelimiter = "."
 		logInfo("The routing-key-delimiter is set to the default value '" + routingKeyDelimiter + "' ")
@@ -81,7 +92,49 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		contentEncoding = ""
 	}
 
-	connection, err = amqp.Dial("amqp://" + user + ":" + password + "@" + host + ":" + port + "/" + vhost)
+	tlsEnabled, err := strconv.ParseBool(tlsEnabledStr)
+	if err != nil {
+		logError("Couldn't parse TLSEnabled to boolean: ", err)
+		return output.FLB_ERROR
+	}
+
+	var tlsConfig *tls.Config
+	if tlsEnabled {
+		tlsConfig = &tls.Config{}
+
+		if tlsCertFile != "" && tlsKeyFile != "" {
+			cert, err := tls.LoadX509KeyPair(tlsCertFile, tlsKeyFile)
+			if err != nil {
+				logError("Failed to load TLS certificate and key: ", err)
+				return output.FLB_ERROR
+			}
+			tlsConfig.Certificates = []tls.Certificate{cert}
+		}
+
+		if tlsCACertFile != "" {
+			caCertPool, err := loadCACert(tlsCACertFile)
+			if err != nil {
+				logError("Failed to load TLS CA certificate: ", err)
+				return output.FLB_ERROR
+			}
+			tlsConfig.RootCAs = caCertPool
+		}
+
+		if tlsInsecureSkipVerifyStr != "" {
+			tlsInsecureSkipVerify, err := strconv.ParseBool(tlsInsecureSkipVerifyStr)
+			if err != nil {
+				logError("Couldn't parse TLSInsecureSkipVerify to boolean: ", err)
+				return output.FLB_ERROR
+			}
+			tlsConfig.InsecureSkipVerify = tlsInsecureSkipVerify
+		}
+	}
+
+	if tlsEnabled {
+		connection, err = amqp.DialTLS("amqps://"+user+":"+password+"@"+host+":"+port+"/"+vhost, tlsConfig)
+	} else {
+		connection, err = amqp.Dial("amqp://" + user + ":" + password + "@" + host + ":" + port + "/" + vhost)
+	}
 	if err != nil {
 		logError("Failed to establish a connection to RabbitMQ: ", err)
 		return output.FLB_ERROR
@@ -199,4 +252,18 @@ func arrayContainsString(arr []string, str string) bool {
 }
 
 func main() {
+}
+
+func loadCACert(caCertFile string) (*x509.CertPool, error) {
+	caCert, err := os.ReadFile(caCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
+		return nil, fmt.Errorf("failed to append CA certificate")
+	}
+
+	return caCertPool, nil
 }
