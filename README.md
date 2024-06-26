@@ -24,7 +24,7 @@ build
 | ExchangeType                 | The exchange type                                                                               | ""            |  
 | RoutingKey                   | The routing key pattern                                                                         | ""            |  
 | RoutingKeyDelimiter          | The delimiter which separates the routing key parts                                             | "."           |  
-| RemoveRkValuesFromRecord     | If enabled, Fluent Bit deletes the values of the record which have been stored in the routing key | ""            |  
+| RemoveRkValuesFromRecord     | If enabled, Fluent Bit deletes the values of the record which have been stored in the routing key | ""          |  
 | ContentEncoding              | Sets the content encoding if needed                                                             | ""            |  
 | TLSCertFile                  | Path to the client certificate file                                                             | ""            |  
 | TLSKeyFile                   | Path to the client key file                                                                     | ""            |  

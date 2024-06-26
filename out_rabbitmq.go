@@ -5,12 +5,8 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"log"
-	"strconv"
 	"unsafe"
 
-	"crypto/x509"
-	"fmt"
-	"os"
 	"sync"
 
 	"github.com/fluent/fluent-bit-go/output"
@@ -87,19 +83,19 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		logInfo("The routing-key-delimiter is set to the default value '" + routingKeyDelimiter + "' ")
 	}
 
-	removeRkValuesFromRecord, err = strconv.ParseBool(removeRkValuesFromRecordStr)
+	removeRkValuesFromRecord, err = parseBool(removeRkValuesFromRecordStr)
 	if err != nil {
 		logError("Couldn't parse RemoveRkValuesFromRecord to boolean: ", err)
 		return output.FLB_ERROR
 	}
 
-	addTagToRecord, err = strconv.ParseBool(addTagToRecordStr)
+	addTagToRecord, err = parseBool(addTagToRecordStr)
 	if err != nil {
 		logError("Couldn't parse AddTagToRecord to boolean: ", err)
 		return output.FLB_ERROR
 	}
 
-	addTimestampToRecord, err = strconv.ParseBool(addTimestampToRecordStr)
+	addTimestampToRecord, err = parseBool(addTimestampToRecordStr)
 	if err != nil {
 		logError("Couldn't parse AddTimestampToRecord to boolean: ", err)
 		return output.FLB_ERROR
@@ -115,7 +111,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		contentEncoding = ""
 	}
 
-	tlsEnabled, err := strconv.ParseBool(tlsEnabledStr)
+	tlsEnabled, err := parseBool(tlsEnabledStr)
 	if err != nil {
 		logError("Couldn't parse TLSEnabled to boolean: ", err)
 		return output.FLB_ERROR
@@ -144,7 +140,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		}
 
 		if tlsInsecureSkipVerifyStr != "" {
-			tlsInsecureSkipVerify, err := strconv.ParseBool(tlsInsecureSkipVerifyStr)
+			tlsInsecureSkipVerify, err := parseBool(tlsInsecureSkipVerifyStr)
 			if err != nil {
 				logError("Couldn't parse TLSInsecureSkipVerify to boolean: ", err)
 				return output.FLB_ERROR
@@ -275,20 +271,6 @@ func arrayContainsString(arr []string, str string) bool {
 }
 
 func main() {
-}
-
-func loadCACert(caCertFile string) (*x509.CertPool, error) {
-	caCert, err := os.ReadFile(caCertFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
-	}
-
-	caCertPool := x509.NewCertPool()
-	if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
-		return nil, fmt.Errorf("failed to append CA certificate")
-	}
-
-	return caCertPool, nil
 }
 
 func initConnection(config *ConnectionConfig) error {
