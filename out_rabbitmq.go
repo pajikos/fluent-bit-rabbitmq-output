@@ -11,12 +11,26 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/fluent/fluent-bit-go/output"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+type ConnectionConfig struct {
+	Host         string
+	Port         string
+	User         string
+	Password     string
+	VHost        string
+	ExchangeName string
+	ExchangeType string
+	TLSEnabled   bool
+	TLSConfig    *tls.Config
+}
+
 var (
+	config                   *ConnectionConfig
 	connection               *amqp.Connection
 	channel                  *amqp.Channel
 	exchangeName             string
@@ -26,6 +40,7 @@ var (
 	addTagToRecord           bool
 	addTimestampToRecord     bool
 	contentEncoding          string
+	connectionMutex          sync.Mutex // Mutex to make connection initialization thread-safe
 )
 
 //export FLBPluginRegister
@@ -39,13 +54,17 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	// Gets called only once for each instance you have configured.
 	var err error
 
-	host := output.FLBPluginConfigKey(plugin, "RabbitHost")
-	port := output.FLBPluginConfigKey(plugin, "RabbitPort")
-	user := output.FLBPluginConfigKey(plugin, "RabbitUser")
-	password := output.FLBPluginConfigKey(plugin, "RabbitPassword")
-	vhost := output.FLBPluginConfigKey(plugin, "RabbitVHost")
-	exchangeName = output.FLBPluginConfigKey(plugin, "ExchangeName")
-	exchangeType := output.FLBPluginConfigKey(plugin, "ExchangeType")
+	config := &ConnectionConfig{
+		Host:         output.FLBPluginConfigKey(plugin, "RabbitHost"),
+		Port:         output.FLBPluginConfigKey(plugin, "RabbitPort"),
+		User:         output.FLBPluginConfigKey(plugin, "RabbitUser"),
+		Password:     output.FLBPluginConfigKey(plugin, "RabbitPassword"),
+		VHost:        output.FLBPluginConfigKey(plugin, "RabbitVHost"),
+		ExchangeName: output.FLBPluginConfigKey(plugin, "ExchangeName"),
+		ExchangeType: output.FLBPluginConfigKey(plugin, "ExchangeType"),
+	}
+
+	exchangeName = config.ExchangeName
 	routingKey = output.FLBPluginConfigKey(plugin, "RoutingKey")
 	routingKeyDelimiter = output.FLBPluginConfigKey(plugin, "RoutingKeyDelimiter")
 	removeRkValuesFromRecordStr := output.FLBPluginConfigKey(plugin, "RemoveRkValuesFromRecord")
@@ -58,6 +77,10 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 	tlsCACertFile := output.FLBPluginConfigKey(plugin, "TLSCACertFile")
 	tlsInsecureSkipVerifyStr := output.FLBPluginConfigKey(plugin, "TLSInsecureSkipVerify")
 	tlsEnabledStr := output.FLBPluginConfigKey(plugin, "TLSEnabled")
+	if tlsEnabledStr == "" {
+		logInfo("TLSEnabled not specified, defaulting to false.")
+		tlsEnabledStr = "false" // Default value if not specified
+	}
 
 	if len(routingKeyDelimiter) < 1 {
 		routingKeyDelimiter = "."
@@ -98,9 +121,9 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 		return output.FLB_ERROR
 	}
 
-	var tlsConfig *tls.Config
 	if tlsEnabled {
-		tlsConfig = &tls.Config{}
+		config.TLSEnabled = true
+		config.TLSConfig = &tls.Config{}
 
 		if tlsCertFile != "" && tlsKeyFile != "" {
 			cert, err := tls.LoadX509KeyPair(tlsCertFile, tlsKeyFile)
@@ -108,7 +131,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 				logError("Failed to load TLS certificate and key: ", err)
 				return output.FLB_ERROR
 			}
-			tlsConfig.Certificates = []tls.Certificate{cert}
+			config.TLSConfig.Certificates = []tls.Certificate{cert}
 		}
 
 		if tlsCACertFile != "" {
@@ -117,7 +140,7 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 				logError("Failed to load TLS CA certificate: ", err)
 				return output.FLB_ERROR
 			}
-			tlsConfig.RootCAs = caCertPool
+			config.TLSConfig.RootCAs = caCertPool
 		}
 
 		if tlsInsecureSkipVerifyStr != "" {
@@ -126,37 +149,23 @@ func FLBPluginInit(plugin unsafe.Pointer) int {
 				logError("Couldn't parse TLSInsecureSkipVerify to boolean: ", err)
 				return output.FLB_ERROR
 			}
-			tlsConfig.InsecureSkipVerify = tlsInsecureSkipVerify
+			config.TLSConfig.InsecureSkipVerify = tlsInsecureSkipVerify
 		}
 	}
 
-	if tlsEnabled {
-		connection, err = amqp.DialTLS("amqps://"+user+":"+password+"@"+host+":"+port+"/"+vhost, tlsConfig)
-	} else {
-		connection, err = amqp.Dial("amqp://" + user + ":" + password + "@" + host + ":" + port + "/" + vhost)
-	}
+	err = initConnection(config)
 	if err != nil {
-		logError("Failed to establish a connection to RabbitMQ: ", err)
 		return output.FLB_ERROR
 	}
-
-	channel, err = connection.Channel()
-	if err != nil {
-		logError("Failed to open a channel: ", err)
-		connection.Close()
-		return output.FLB_ERROR
-	}
-
-	logInfo("Established successfully a connection to the RabbitMQ-Server")
 
 	err = channel.ExchangeDeclare(
-		exchangeName, // name
-		exchangeType, // type
-		true,         // durable
-		false,        // auto-deleted
-		false,        // internal
-		false,        // no-wait
-		nil,          // arguments
+		config.ExchangeName, // name
+		config.ExchangeType, // type
+		true,                // durable
+		false,               // auto-deleted
+		false,               // internal
+		false,               // no-wait
+		nil,                 // arguments
 	)
 
 	if err != nil {
@@ -212,12 +221,23 @@ func FLBPluginFlushCtx(ctx, data unsafe.Pointer, length C.int, tag *C.char) int 
 			false,        // mandatory
 			false,        // immediate
 			amqp.Publishing{
+				DeliveryMode:    amqp.Persistent,
 				ContentType:     "application/json",
 				ContentEncoding: contentEncoding,
 				Body:            jsonString,
 			})
 		if err != nil {
+			if err == amqp.ErrClosed {
+				logError("Connection to RabbitMQ was closed, trying to reconnect... ", err)
+				err = initConnection(config)
+				if err != nil {
+					return output.FLB_ERROR
+				} else {
+					return output.FLB_RETRY
+				}
+			}
 			logError("Couldn't publish record: ", err)
+			return output.FLB_ERROR
 		}
 	}
 	return output.FLB_OK
@@ -225,6 +245,9 @@ func FLBPluginFlushCtx(ctx, data unsafe.Pointer, length C.int, tag *C.char) int 
 
 //export FLBPluginExit
 func FLBPluginExit() int {
+	connectionMutex.Lock()
+	defer connectionMutex.Unlock()
+
 	if channel != nil {
 		channel.Close()
 	}
@@ -266,4 +289,36 @@ func loadCACert(caCertFile string) (*x509.CertPool, error) {
 	}
 
 	return caCertPool, nil
+}
+
+func initConnection(config *ConnectionConfig) error {
+	connectionMutex.Lock()         // Lock the mutex to ensure exclusive access
+	defer connectionMutex.Unlock() // Unlock the mutex when the function returns
+
+	// Check if the connection is already established to avoid reinitializing
+	if connection != nil && !connection.IsClosed() {
+		return nil // Connection is already established, no need to reinitialize
+	}
+
+	var err error
+	if config.TLSEnabled {
+		connection, err = amqp.DialTLS("amqps://"+config.User+":"+config.Password+"@"+config.Host+":"+config.Port+"/"+config.VHost, config.TLSConfig)
+	} else {
+		connection, err = amqp.Dial("amqp://" + config.User + ":" + config.Password + "@" + config.Host + ":" + config.Port + "/" + config.VHost)
+	}
+	if err != nil {
+		logError("Failed to establish a connection to RabbitMQ: ", err)
+		return err
+	}
+
+	channel, err = connection.Channel()
+	if err != nil {
+		logError("Failed to open a channel: ", err)
+		connection.Close()
+		return err
+	}
+
+	logInfo("Established successfully a connection to the RabbitMQ-Server")
+
+	return nil
 }
