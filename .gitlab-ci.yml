@@ -10,7 +10,7 @@ build:
   stage: build  
   image: golang:${GO_VERSION}-bullseye  
   script:  
-    - apt-get update && apt-get install -y make
+    - apt-get update && apt-get install -y make build-essential
     - go mod download  
     - make all  
   artifacts:  
