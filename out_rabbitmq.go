@@ -12,6 +12,11 @@ import (
 	"github.com/fluent/fluent-bit-go/output"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+import (
+	"fmt"
+	"net/url"
+	"strings"
+)
 
 type ConnectionConfig struct {
 	Host         string
@@ -282,11 +287,25 @@ func initConnection(config *ConnectionConfig) error {
 		return nil // Connection is already established, no need to reinitialize
 	}
 
+	// URL encode the username, password, and vhost
+	encodedUser := url.QueryEscape(config.User)
+	encodedPassword := url.QueryEscape(config.Password)
+	encodedVHost := url.QueryEscape(strings.TrimPrefix(config.VHost, "/"))
+
+	var amqpURL string
+	if config.TLSEnabled {
+		amqpURL = fmt.Sprintf("amqps://%s:%s@%s:%s/%s", 
+			encodedUser, encodedPassword, config.Host, config.Port, encodedVHost)
+	} else {
+		amqpURL = fmt.Sprintf("amqp://%s:%s@%s:%s/%s", 
+			encodedUser, encodedPassword, config.Host, config.Port, encodedVHost)
+	}
+
 	var err error
 	if config.TLSEnabled {
-		connection, err = amqp.DialTLS("amqps://"+config.User+":"+config.Password+"@"+config.Host+":"+config.Port+"/"+config.VHost, config.TLSConfig)
+		connection, err = amqp.DialTLS(amqpURL, config.TLSConfig)
 	} else {
-		connection, err = amqp.Dial("amqp://" + config.User + ":" + config.Password + "@" + config.Host + ":" + config.Port + "/" + config.VHost)
+		connection, err = amqp.Dial(amqpURL)
 	}
 	if err != nil {
 		logError("Failed to establish a connection to RabbitMQ: ", err)
